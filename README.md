@@ -115,7 +115,7 @@ If you encounter any problems, please [file an issue] along with a detailed desc
 
 #### Added Fund
 
-Sometimes, a little bit of Pac-Man or Space Invaders is required. We included these games courtesy of the people
+Sometimes, a little bit of Pac-Man or Space Invaders is required. We included these games courtesy of:
 
    - [Whoever created PacManCode](https://pacmancode.com/)
    - [Lee Rob on GitHub](https://github.com/leerob/space-invaders)
