@@ -48,7 +48,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     uac_admin=True,
-    icon='C:/Users/Calum/Documents/GitHub/VasoTracker-2/software/vasotracker 2.0/images/vt_icon.ico',
+    icon='D:\\OneDrive - University of Strathclyde\\Documents\\GitHub\\VasoTracker-2-Software\\vasotracker_2\\images\\vt_icon.ico',
 )
 coll = COLLECT(
     exe,
