@@ -1,6 +1,6 @@
-# VasoTracker 2.0 - Pressure Myograph and Blood Vessel Diameter Tracking Software (online and offline analysis)
+# VasoTracker 2.0 - Blood Vessel Diameter Tracking Software (online and offline analysis)
 
-The VasoTracker 2.0 software is a comprehensive software solution designed for the acquisition and analysis of imaging data from blood vessels mounted in a pressure myograph. It supports both live and pre-recorded video analysis, making it adaptable for various experimental set ups.
+The VasoTracker 2.0 software is a comprehensive software solution designed for the acquisition and analysis of blood vessel imaging data. It supports both live and pre-recorded video analysis, making it adaptable for various experimental set ups. It was initially developed for pressure myography, but it works for many other types of imaging!
 
 ![til](https://github.com/VasoTracker/VasoTracker-2-Software/blob/main/VasoTracker%20GUI.gif)
 
@@ -44,7 +44,7 @@ VasoTracker can be installed using either the standalone executable file for str
 #### Prerequisites
 
 1. **Install uManager:**
-   - Visit the [µManager Downloads Page](https://micro-manager.org/wiki/Download_Micro-Manager_Latest_Release) and download the latest **nightly build** of µManager for your operating system.
+   - Visit the [µManager Downloads Page](https://micro-manager.org/wiki/Download_Micro-Manager_Latest_Release) and download the latest **2.0.3 (20240424) nightly build** of µManager for your operating system.
    - Follow the provided instructions to install µManager on your computer.
 
 #### Steps:
@@ -115,7 +115,7 @@ If you encounter any problems, please [file an issue] along with a detailed desc
 
 #### Added Fund
 
-Sometimes, a little bit of Pac-Man or Space Invaders is required. We included these games courtesy of the people
+Sometimes, a little bit of Pac-Man or Space Invaders is required. We included these games courtesy of:
 
    - [Whoever created PacManCode](https://pacmancode.com/)
    - [Lee Rob on GitHub](https://github.com/leerob/space-invaders)
