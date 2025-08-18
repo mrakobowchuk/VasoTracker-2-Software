@@ -44,7 +44,7 @@ VasoTracker can be installed using either the standalone executable file for str
 #### Prerequisites
 
 1. **Install uManager:**
-   - Visit the [µManager Downloads Page](https://micro-manager.org/wiki/Download_Micro-Manager_Latest_Release) and download the latest **nightly build** of µManager for your operating system.
+   - Visit the [µManager Downloads Page](https://micro-manager.org/wiki/Download_Micro-Manager_Latest_Release) and download the latest **2.0.3 (20240424) nightly build** of µManager for your operating system.
    - Follow the provided instructions to install µManager on your computer.
 
 #### Steps:
