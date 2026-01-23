@@ -17,7 +17,7 @@ The VasoTracker 2.2 software is a comprehensive software solution designed for t
 
 ---
 
-## What's New in v2.2
+## What's New in v2.2 (January 2026)
 
 * **Native OpenCV Camera Support:** Use any USB camera or webcam directly without configuration - just select "OpenCV" from the camera dropdown.
 * **Automatic Micro-Manager Installation:** No more manual prerequisites - Micro-Manager components are automatically downloaded on first run.
