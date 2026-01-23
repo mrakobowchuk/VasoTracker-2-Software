@@ -1,13 +1,14 @@
-# VasoTracker 2.0 - Blood Vessel Diameter Tracking Software (online and offline analysis)
+# VasoTracker 2.2 - Blood Vessel Diameter Tracking Software (online and offline analysis)
 
-The VasoTracker 2.0 software is a comprehensive software solution designed for the acquisition and analysis of blood vessel imaging data. It supports both live and pre-recorded video analysis, making it adaptable for various experimental set ups. It was initially developed for pressure myography, but it works for many other types of imaging!
+The VasoTracker 2.2 software is a comprehensive software solution designed for the acquisition and analysis of blood vessel imaging data. It supports both live and pre-recorded video analysis, making it adaptable for various experimental set ups. It was initially developed for pressure myography, but it works for many other types of imaging!
 
 ![til](https://github.com/VasoTracker/VasoTracker-2-Software/blob/main/VasoTracker%20GUI.gif)
 
 
 
 ## Table of Contents
-- [Key Features](#key-features-of-vasotracker-20)
+- [What's New in v2.2](#whats-new-in-v22)
+- [Key Features](#key-features)
 - [Installation Instructions](#vasotracker-installation-instructions)
   - [Executable File](#option-1-installing-and-running-from-the-executable-file)
   - [From Source](#option-2-installing-from-source-using-anaconda)
@@ -16,10 +17,20 @@ The VasoTracker 2.0 software is a comprehensive software solution designed for t
 
 ---
 
-## Key Features of VasoTracker 2.0
+## What's New in v2.2
+
+* **Native OpenCV Camera Support:** Use any USB camera or webcam directly without configuration - just select "OpenCV" from the camera dropdown.
+* **Automatic Micro-Manager Installation:** No more manual prerequisites - Micro-Manager components are automatically downloaded on first run.
+* **Python 3.11:** Updated to Python 3.11 for improved performance and compatibility.
+* **Background Arduino Polling:** Improved responsiveness when using Arduino-based pressure and temperature monitoring.
+* **Large File Handling:** Automatic file splitting for long recordings to prevent oversized TIFF files.
+
+---
+
+## Key Features
 
 * **Software Base:** Now using μManager 2.0.
-* **Programming Language:** Updated to Python 3.X for better performance and compatibility.
+* **Programming Language:** Updated to Python 3.11 for better performance and compatibility.
 * **Live Data Acquisition:** Allows for the real-time display of pressurized arteries mounted in the VasoTracker vessel chamber.
 * **Diameter Measurement:** Real-time measurement and display of both outer and inner artery diameters.
 * **Multiple Tracking Algorithms:** Allow accurate tracking of brightfield or fluorscence imaging data.
