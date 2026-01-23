@@ -97,6 +97,7 @@ from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.path import Path as MplPath
+
 import skimage
 import tifffile as tf
 import tkinter as tk
@@ -134,8 +135,6 @@ print("Is PYDAQMX = ", is_pydaqmx_available)
 
 # Constants
 SYS32_PATH = "C:/WINDOWS/SYSTEM32/DRIVERs/"
-BASLER_PATH = os.path.join("C:", os.sep, "Program Files", "Basler/pylon 6/Runtime/x64/")
-BASLER_PATH2 = os.path.join("C:", os.sep, "Program Files", "Basler/pylon 6/Runtime/Win32/")
 
 NUM_LINES = 10
 NUM_ROIS = 10
@@ -189,6 +188,7 @@ class AcquisitionPaneState:
     pixel_clock: IntVar = field(default_factory=IntVar)
     acq_rate: DoubleVar = field(default_factory=DoubleVar)
     rec_interval: IntVar = field(default_factory=IntVar)
+    target_fps: DoubleVar = field(default_factory=DoubleVar)
     default_settings: BooleanVar = field(default_factory=BooleanVar)
     fast_mode: BooleanVar = field(default_factory=BooleanVar)
     res: StringVar = field(default_factory=StringVar)
@@ -730,6 +730,9 @@ class DiamsAndRasterResult:
     rasterised: np.ndarray
 
 
+# Set to True to enable timing output
+_PROFILE_PROCESSING = False
+
 def compute_diameters_and_rasterise(
     im: np.ndarray,
     raster_draw_state: RasterDrawState,
@@ -746,7 +749,10 @@ def compute_diameters_and_rasterise(
     rotate_tracking: bool,
     ultrasound_tracking: bool,
 ):
-    #print ("frame id == ", frame_id)
+    if _PROFILE_PROCESSING:
+        import time as _time
+        _t0 = _time.perf_counter()
+
     diams = calculate_diameter(
         image=im,
         rds=raster_draw_state,
@@ -761,7 +767,15 @@ def compute_diameters_and_rasterise(
         rotate_tracking=rotate_tracking,
         ultrasound_tracking=ultrasound_tracking,
     )
+
+    if _PROFILE_PROCESSING:
+        _t1 = _time.perf_counter()
+
     image_colour = cv2.cvtColor(im, cv2.COLOR_GRAY2RGB)
+
+    if _PROFILE_PROCESSING:
+        _t2 = _time.perf_counter()
+
     rasterised = rasterise_camera_state(
         image_colour,
         raster_draw_state,
@@ -769,6 +783,11 @@ def compute_diameters_and_rasterise(
         filter_diams=filter_diams,
         rotate_tracking=rotate_tracking,
     )
+
+    if _PROFILE_PROCESSING:
+        _t3 = _time.perf_counter()
+        print(f"TIMING: diameter={(_t1-_t0)*1000:.1f}ms, cvtColor={(_t2-_t1)*1000:.1f}ms, rasterise={(_t3-_t2)*1000:.1f}ms, TOTAL={(_t3-_t0)*1000:.1f}ms")
+
     return DiamsAndRasterResult(
         frame_id=frame_id,
         frame_time=frame_time,
@@ -806,6 +825,16 @@ class Model:
         self.tiff_writer1 = None
         self.tiff_writer2 = None
 
+        self.file_counter1 = 0
+        self.file_counter2 = 0
+        self.current_size1 = 0
+        self.current_size2 = 0
+        self.max_file_size = 3.8e9  # 3.8GB threshold for usability
+        self.output_stem1 = None  # Base name for raw files (without extension)
+        self.output_stem2 = None  # Base name for result files (without extension)
+        self.output_stem = None   # Base stem from setup_output_files
+        self.output_dir = None    # Output directory from setup_output_files
+
 
         try:
             self.configure = Config.from_file(Path(__file__).parent / self.config_path)
@@ -822,7 +851,9 @@ class Model:
         self.configure.set_values(self.state)
         self.setup_thread_pool()
 
-        self.sleep_duration = self.configure.acquisition.refresh_min_interval
+        # Calculate sleep duration from target FPS (with safety limits)
+        target_fps = self.configure.acquisition.target_fps
+        self.sleep_duration = self._calculate_sleep_from_fps(target_fps)
         self.start_time = 0.0
         self.prev_update = 0.0
         self.time_elapsed = 0.0
@@ -846,6 +877,7 @@ class Model:
         self.output_path = output_path
         self.output_dir, self.output_filename = os.path.split(output_path)
         self.output_stem = os.path.splitext(self.output_filename)[0]
+        print(f"DEBUG setup_output_files: dir={self.output_dir}, stem={self.output_stem}")
 
         # NOTE(cmo): Setup output file
         # NOTE(cmo): This nested output file can be worked with pretty easily by
@@ -874,6 +906,9 @@ class Model:
         tb.acq.default_settings.set(True)
         tb.source.settings.set(self.config_path)
         tb.acq.fast_mode.set(False)
+        # Set default target FPS if not already set from config
+        if tb.acq.target_fps.get() == 0:
+            tb.acq.target_fps.set(10.0)
 
         tb.analysis.filter.set(True)
         tb.analysis.ID.set(True)
@@ -889,6 +924,8 @@ class Model:
         tb = self.state.toolbar
         tb.acq.default_settings.set(False)
         tb.acq.fast_mode.set(True)
+        # When loading file, use higher FPS for smoother playback
+        tb.acq.target_fps.set(30.0)
         tb.acq.rec_interval.set(1)
 
     def setup_thread_pool(self):
@@ -924,7 +961,26 @@ class Model:
             if self.state.camera is not None:
                 self.state.camera.shutdown()
 
+            # Close all open files
+            self.close_tiff_writers()
+            self.close_output_files()
+
         return cb
+
+    def close_output_files(self):
+        """Close CSV output files"""
+        if hasattr(self, 'output_file') and self.output_file is not None:
+            try:
+                self.output_file.close()
+            except:
+                pass
+            self.output_file = None
+        if hasattr(self, 'table_file') and self.table_file is not None:
+            try:
+                self.table_file.close()
+            except:
+                pass
+            self.table_file = None
 
     def register_callbacks(self):
         tb = self.state.toolbar
@@ -1012,11 +1068,9 @@ class Model:
 
 
         def set_acq_thread_sleep(*args):
-            if self.state.toolbar.acq.fast_mode.get():
-                self.sleep_duration = self.configure.acquisition.refresh_faster_interval
-            else:
-                self.sleep_duration = self.configure.acquisition.refresh_min_interval
-        self.state.toolbar.acq.fast_mode.trace_add("write", set_acq_thread_sleep)
+            target_fps = self.state.toolbar.acq.target_fps.get()
+            self.sleep_duration = self._calculate_sleep_from_fps(target_fps)
+        self.state.toolbar.acq.target_fps.trace_add("write", set_acq_thread_sleep)
 
         def update_scale(*args):
             scale = tb.acq.scale.get()
@@ -1115,11 +1169,12 @@ class Model:
         # NOTE(cmo): Condition added to show image when scrolling through image from file
         if self.tracking or self.state.camera.camera_name == "Image from file":
             self.state.diameters = result.diameters
-            # NOTE(cmo): Drop frames if the UI can't keep up
-            if not self.state.cam_show.dirty.get():
-                self.state.cam_show.raw_im_data = result.raw_im
-                self.state.cam_show.im_data = result.rasterised
-                self.state.cam_show.dirty.set(True)
+            # Always update image data so latest frame is available
+            self.state.cam_show.raw_im_data = result.raw_im
+            self.state.cam_show.im_data = result.rasterised
+            # Toggle dirty to ensure trace fires (trace only fires on value change)
+            self.state.cam_show.dirty.set(False)
+            self.state.cam_show.dirty.set(True)
             
             if not self.tracking:
                 return
@@ -1138,19 +1193,20 @@ class Model:
             record_data = self.state.toolbar.start_stop.record.get()
             rec_interval = self.state.toolbar.acq.rec_interval.get()
 
-            if record_data and int(self.time_elapsed) % rec_interval == 0:
-                # Save the raw and rasterised images
-                # ----------------------------------
-                self.save_image(result.raw_im, subdir1="Raw")
-                self.save_image(result.rasterised, subdir2="Result")
+            # rec_interval=0 means record every frame, otherwise record at interval
+            should_save = rec_interval == 0 or int(self.time_elapsed) % rec_interval == 0
+            if record_data and should_save:
+                # Save both images together (ensures synchronized file rotation)
+                self.save_images(raw_image=result.raw_im, result_image=result.rasterised)
         else:
             self.state.diameters = None
             diams = self.state.diameters
-            # NOTE(cmo): Drop frames if the UI can't keep up
-            if not self.state.cam_show.dirty.get():
-                self.state.cam_show.raw_im_data = result.raw_im
-                self.state.cam_show.im_data = result.raw_im
-                self.state.cam_show.dirty.set(True)
+            # Always update image data so latest frame is available
+            self.state.cam_show.raw_im_data = result.raw_im
+            self.state.cam_show.im_data = result.raw_im
+            # Toggle dirty to ensure trace fires (trace only fires on value change)
+            self.state.cam_show.dirty.set(False)
+            self.state.cam_show.dirty.set(True)
 
         if diams is not None:
 
@@ -1316,38 +1372,99 @@ class Model:
 
 
     def initialize_tiff_writer1(self):
-        print(self.output_path1)
-        self.tiff_writer1 = tf.TiffWriter(self.output_path1, mode='w')
+        # First file starts at 001
+        self.file_counter1 = 1
+        self.output_path1 = Path(self.output_dir) / f"{self.output_stem1}_{self.file_counter1:03d}.tiff"
+        print(f"Starting file: {self.output_path1}")
+        self.tiff_writer1 = tf.TiffWriter(self.output_path1, mode='w', bigtiff=True)
+        self.current_size1 = 0
 
     def initialize_tiff_writer2(self):
-        print(self.output_path2)
-        self.tiff_writer2 = tf.TiffWriter(self.output_path2, mode='w')
+        # First file starts at 001
+        self.file_counter2 = 1
+        self.output_path2 = Path(self.output_dir) / f"{self.output_stem2}_{self.file_counter2:03d}.tiff"
+        print(f"Starting file: {self.output_path2}")
+        self.tiff_writer2 = tf.TiffWriter(self.output_path2, mode='w', bigtiff=True)
+        self.current_size2 = 0
+
+    def check_and_rotate_writers(self, image_size1: int, image_size2: int):
+        """Check if either writer needs rotation, and rotate both together to keep them in sync."""
+        needs_rotation = False
+
+        # Check if either file would exceed the threshold
+        if self.tiff_writer1 is not None and self.current_size1 + image_size1 > self.max_file_size:
+            needs_rotation = True
+        if self.tiff_writer2 is not None and self.current_size2 + image_size2 > self.max_file_size:
+            needs_rotation = True
+
+        if needs_rotation:
+            # Close both writers
+            if self.tiff_writer1 is not None:
+                self.tiff_writer1.close()
+            if self.tiff_writer2 is not None:
+                self.tiff_writer2.close()
+
+            # Increment shared counter
+            self.file_counter1 += 1
+            self.file_counter2 = self.file_counter1  # Keep in sync
+
+            # Create new files for both
+            if self.output_stem1 is not None:
+                self.output_path1 = Path(self.output_dir) / f"{self.output_stem1}_{self.file_counter1:03d}.tiff"
+                print(f"Starting new file: {self.output_path1}")
+                self.tiff_writer1 = tf.TiffWriter(self.output_path1, mode='w', bigtiff=True)
+                self.current_size1 = 0
+
+            if self.output_stem2 is not None:
+                self.output_path2 = Path(self.output_dir) / f"{self.output_stem2}_{self.file_counter2:03d}.tiff"
+                print(f"Starting new file: {self.output_path2}")
+                self.tiff_writer2 = tf.TiffWriter(self.output_path2, mode='w', bigtiff=True)
+                self.current_size2 = 0
 
     def close_tiff_writers(self):
         if self.tiff_writer1 is not None:
-            self.tiff_writer1.close()
+            try:
+                self.tiff_writer1.close()
+            except:
+                pass
+            self.tiff_writer1 = None
         if self.tiff_writer2 is not None:
-            self.tiff_writer2.close()
+            try:
+                self.tiff_writer2.close()
+            except:
+                pass
+            self.tiff_writer2 = None
+        # Reset counters and paths for next experiment
+        self.file_counter1 = 0
+        self.file_counter2 = 0
+        self.current_size1 = 0
+        self.current_size2 = 0
+        self.output_path1 = None
+        self.output_path2 = None
+        self.output_stem1 = None
+        self.output_stem2 = None
 
-    def save_snapshot(self, image: np.ndarray, subdir: Optional[str] = None):
-        current_time = int(self.time_elapsed)
-        current_frame = int(self.frame_count)
-        directory = Path(self.output_dir) / "snapshots"
-        if subdir is not None:
-            directory = directory / subdir
-        directory.mkdir(parents=True, exist_ok=True)
-        image_path = directory / f"{self.output_stem}[t={current_time:06d}].tiff"
-        skimage.io.imsave(image_path, image)
+    def save_images(self, raw_image: Optional[np.ndarray] = None, result_image: Optional[np.ndarray] = None, metadata: Optional[dict] = None):
+        """Save raw and/or result images to TIFF files, rotating both together when needed."""
+        # Check if output files are set up
+        if self.output_stem is None or self.output_dir is None:
+            print(f"DEBUG save_images: Cannot save - output_stem={self.output_stem}, output_dir={self.output_dir}")
+            return  # Cannot save without output path configured
 
-    def save_image(self, image: np.ndarray, subdir1: Optional[str] = None, subdir2: Optional[str] = None, metadata: Optional[dict] = None):
-        directory = Path(self.output_dir)
+        # Calculate image sizes
+        raw_size = raw_image.nbytes if raw_image is not None else 0
+        result_size = result_image.nbytes if result_image is not None else 0
 
-        if self.tiff_writer1 is None and subdir1 is not None:
-            self.output_path1 = directory / f"{self.output_stem}_{subdir1}.tiff"
+        # Initialize writers if needed
+        if self.tiff_writer1 is None and raw_image is not None:
+            self.output_stem1 = f"{self.output_stem}_Raw"
             self.initialize_tiff_writer1()
-        elif self.tiff_writer2 is None and subdir2 is not None:
-            self.output_path2 = directory / f"{self.output_stem}_{subdir2}.tiff"
+        if self.tiff_writer2 is None and result_image is not None:
+            self.output_stem2 = f"{self.output_stem}_Result"
             self.initialize_tiff_writer2()
+
+        # Check if we need to rotate files (both together)
+        self.check_and_rotate_writers(raw_size, result_size)
 
         # Default metadata if none provided
         if metadata is None:
@@ -1358,7 +1475,6 @@ class Model:
             'Timestamp': datetime.now().isoformat(),
             'FrameNumber': self.frame_count,
             'TimeElapsed': self.time_elapsed,
-            'FilePath': str(self.output_path1 if subdir1 is not None else self.output_path2)
         }
 
         # Merge user provided metadata with default metadata
@@ -1367,19 +1483,47 @@ class Model:
         # Convert metadata to JSON string for storage
         metadata_json = json.dumps(combined_metadata)
 
-        if subdir1 is not None:
-            description = metadata_json
-            self.tiff_writer1.write(image, description=description)
-        elif subdir2 is not None:
-            description = metadata_json
-            self.tiff_writer2.write(image, description=description)
+        # Write raw image
+        if raw_image is not None and self.tiff_writer1 is not None:
+            self.tiff_writer1.write(raw_image, description=metadata_json)
+            self.current_size1 += raw_size
+
+        # Write result image
+        if result_image is not None and self.tiff_writer2 is not None:
+            self.tiff_writer2.write(result_image, description=metadata_json)
+            self.current_size2 += result_size
+
+    # Keep old method for backwards compatibility (e.g., snapshots)
+    def save_image(self, image: np.ndarray, subdir1: Optional[str] = None, subdir2: Optional[str] = None, metadata: Optional[dict] = None):
+        """Save a single image. For paired Raw/Result saving, use save_images() instead."""
+        if subdir1 == "Raw":
+            self.save_images(raw_image=image, metadata=metadata)
+        elif subdir2 == "Result":
+            self.save_images(result_image=image, metadata=metadata)
+        else:
+            # Fallback for other uses (snapshots, etc.)
+            if self.output_stem is None or self.output_dir is None:
+                return
+            if subdir1 is not None:
+                if self.tiff_writer1 is None:
+                    self.output_stem1 = f"{self.output_stem}_{subdir1}"
+                    self.initialize_tiff_writer1()
+                self.tiff_writer1.write(image)
+                self.current_size1 += image.nbytes
 
     def process_updates(self):
+        if _PROFILE_PROCESSING:
+            import time as _time
+            _t0 = _time.perf_counter()
+
         tb = self.state.toolbar
         try:
             self.process_images()
         except:
             traceback.print_exc()
+
+        if _PROFILE_PROCESSING:
+            _t1 = _time.perf_counter()
 
         # need to update the timer here
         if self.state.toolbar.pressure_protocol.pressure_protocol_flag.get() == 1:
@@ -1394,8 +1538,15 @@ class Model:
         else:
             pass
 
+        if _PROFILE_PROCESSING:
+            _t2 = _time.perf_counter()
+
         temppres = self.arduino_controller.getData()
         self.measured_pressure_1, self.measured_pressure_2, self.measured_pressure_avg, self.measured_temperature = self.arduino_controller.sortdata(temppres)
+
+        if _PROFILE_PROCESSING:
+            _t3 = _time.perf_counter()
+            print(f"TIMING: process_updates: images={(_t1-_t0)*1000:.1f}ms, pressure={(_t2-_t1)*1000:.1f}ms, arduino={(_t3-_t2)*1000:.1f}ms, TOTAL={(_t3-_t0)*1000:.1f}ms")
         if self.measured_temperature:
             tb.data_acq.temperature.set(np.round(self.measured_temperature, 1))
         if self.measured_pressure_avg:
@@ -1529,8 +1680,9 @@ class Model:
                         except:
                             pass
                         self.queue.put(img)
-                    # NOTE(cmo): Don't spin super fast on the same frame in this state!
-                    sleep_duration *= 10
+                    else:
+                        # NOTE(cmo): Don't spin super fast on the same frame in this state!
+                        sleep_duration *= 10
 
             elif self.acquiring and self.tracking_file and file_analysed:
                 '''
@@ -1568,6 +1720,21 @@ class Model:
     def set_default_acq_settings(self):
         defaults = AcquisitionSettings()
         defaults.set_values(self.state)
+
+    def _calculate_sleep_from_fps(self, target_fps: float) -> float:
+        """Calculate sleep duration from target FPS with safety limits.
+
+        Args:
+            target_fps: Target frames per second (1-100 Hz)
+
+        Returns:
+            Sleep duration in seconds
+        """
+        # Clamp FPS to safe range
+        fps = max(1.0, min(100.0, float(target_fps)))
+        # Calculate sleep time (with small minimum to prevent CPU spinning)
+        sleep = max(0.001, 1.0 / fps)
+        return sleep
 
     def set_ref_diameter(self):
         if self.state.diameters is not None:
@@ -2044,6 +2211,20 @@ class AcquisitionSettingsPane(ToolbarPane):
             sticky=tk.W
         )
 
+        ctk.CTkLabel(self, text="Target FPS:", font=(default_font, default_font_size)).grid(row=6, column=0, padx=padx, sticky=tk.E)
+        self.target_fps_entry = make_entry(
+            ctk.CTkEntry,
+            textvariable=sv.target_fps,
+            font=(default_font, default_font_size),
+            fg_color="white",
+            row=6,
+            column=1,
+            width=entry_width,
+            height=entry_height,
+            disabled=False,
+            sticky=tk.W
+        )
+
         self.default_settings = ctk.CTkCheckBox(
             self,
             text="Default",
@@ -2053,7 +2234,7 @@ class AcquisitionSettingsPane(ToolbarPane):
             checkbox_height=20,
             border_width=2
         )
-        self.default_settings.grid(row=6, column=0, padx=5, pady=0, sticky=tk.E)
+        self.default_settings.grid(row=7, column=0, padx=5, pady=0, sticky=tk.E)
 
         self.faster_settings = ctk.CTkCheckBox(
             self,
@@ -2064,34 +2245,33 @@ class AcquisitionSettingsPane(ToolbarPane):
             checkbox_height=20,
             border_width=2
         )
-        self.faster_settings.grid(row=6, column=1, padx=5, pady=0, sticky=tk.E)
+        self.faster_settings.grid(row=7, column=1, padx=5, pady=0, sticky=tk.E)
         self.faster_settings.configure(state=tk.DISABLED)
 
         # Uncomment to add ability to set binning and FOV
 
         '''
-        ctk.CTkLabel(self, text="Res:").grid(row=7, column=0, sticky=tk.E)
+        ctk.CTkLabel(self, text="Res:").grid(row=8, column=0, sticky=tk.E)
         self.res_entry = make_entry(
             ttk.OptionMenu,
             args=(sv.res, self.res_options[0], *self.res_options),
             disabled=default_disabled,
-            row=7,
+            row=8,
             column=1,
         )
 
-        ctk.CTkLabel(self, text="FOV:").grid(row=8, column=0, sticky=tk.E)
+        ctk.CTkLabel(self, text="FOV:").grid(row=9, column=0, sticky=tk.E)
         self.fov_entry = make_entry(
             ttk.OptionMenu,
             args=(sv.fov, self.fov_options[0], *self.fov_options),
             disabled=default_disabled,
-            row=8,
+            row=9,
             column=1,
         )
         '''
 
         self.setup_default_settings_lock()
         self.setup_faster_settings_warning()
-
 
         # Create a single tooltip instance for the container
         tooltip = ToolTip(self)
@@ -2103,6 +2283,7 @@ class AcquisitionSettingsPane(ToolbarPane):
             self.exposure_entry: "Set the camera exposure.",
             self.acq_rate_entry: "Current acquisition rate (Hz).",
             self.rec_interval_entry: "Set the number of seconds between saved images.",
+            self.target_fps_entry: "Target frame rate (1-100 Hz). Higher values use more CPU.",
             self.default_settings: "Enable/disable default settings.",
             self.faster_settings: "Enable/disable fast mode (experimental).",
         }
@@ -2132,8 +2313,8 @@ class AcquisitionSettingsPane(ToolbarPane):
             self.faster_settings.configure(state=state)
             self.scale_entry.configure(state=state)
             self.exposure_entry.configure(state=state)
-            #self.pix_clock_entry.configure(state=state)
             self.rec_interval_entry.configure(state=state)
+            self.target_fps_entry.configure(state=state)
 
     def setup_default_settings_lock(self):
         def callback(*args):
@@ -2145,6 +2326,7 @@ class AcquisitionSettingsPane(ToolbarPane):
             self.scale_entry.configure(state=state, fg_color=fg_color)
             self.exposure_entry.configure(state=state, fg_color=fg_color)
             self.rec_interval_entry.configure(state=state, fg_color=fg_color)
+            self.target_fps_entry.configure(state=state, fg_color=fg_color)
             self.faster_settings.configure(state=state, fg_color=fg_color)
 
 
@@ -3325,8 +3507,10 @@ class GraphFrame(ttk.Frame):
         settings.limits_dirty.trace_add("write", lambda *args: self.update_lims_fromfile_callback())
 
     def get_blit_area(self):
-        self.ax1_bg = self.figure.canvas.copy_from_bbox(self.ax1.bbox)
-        self.ax2_bg = self.figure.canvas.copy_from_bbox(self.ax2.bbox)
+        """Capture the background for blitting. Call after any axis/limit changes."""
+        self.figure.canvas.draw()
+        self.ax1_bg = self.figure.canvas.copy_from_bbox(self.figure.bbox)
+        self._bg_stale = False
 
     def setup_widgets(self):
         axis_color = VasoTracker_Blue #"black"
@@ -3369,19 +3553,39 @@ class GraphFrame(ttk.Frame):
 
 
 
-        # Initialize empty plots for dynamic updating
-        (self.od_avg,) = self.ax1.plot([], [], label='OD Avg')
-        (self.id_avg,) = self.ax2.plot([], [], label='ID Avg')
-        (self.markers,) = self.ax1_markers.plot([], [], label='Markers')
-        (self.markers,) = self.ax2_markers.plot([], [])
-        # Repeat for `self.ax2_markers` if necessary
+        # Initialize empty plots for dynamic updating with animated=True for blitting
+        hex_color_od = '#{:02x}{:02x}{:02x}'.format(C1[0], C1[1], C1[2])  # Blue
+        hex_color_id = '#{:02x}{:02x}{:02x}'.format(C2[0], C2[1], C2[2])  # Green
 
-        # Assuming NUM_LINES is defined and represents the number of dynamic lines
-        self.od_lines = [self.ax1.plot([], [])[0] for _ in range(NUM_LINES)]
-        self.id_lines = [self.ax2.plot([], [])[0] for _ in range(NUM_LINES)]
+        (self.od_avg,) = self.ax1.plot([], [], color=hex_color_od, animated=True)
+        (self.id_avg,) = self.ax2.plot([], [], color=hex_color_id, animated=True)
 
-        self.ax1_vline = self.ax1.axvline(1, c='k')
-        self.ax2_vline = self.ax2.axvline(1, c='k')
+        # Multi-ROI lines
+        self.od_lines = [self.ax1.plot([], [], color=f"C{i}", animated=True)[0] for i in range(NUM_LINES)]
+        self.id_lines = [self.ax2.plot([], [], color=f"C{i}", animated=True)[0] for i in range(NUM_LINES)]
+
+        # Vertical indicator lines
+        self.ax1_vline = self.ax1.axvline(1, c='k', animated=True, visible=False)
+        self.ax2_vline = self.ax2.axvline(1, c='k', animated=True, visible=False)
+
+        # Pre-create marker lines (max 20 markers) to avoid creating new objects every frame
+        self.max_markers = 20
+        self.marker_lines_od = []
+        self.marker_lines_id = []
+        self.marker_texts_od = []
+        self.marker_texts_id = []
+        for i in range(self.max_markers):
+            line_od = self.ax1_markers.axvline(0, color='green', linewidth=1, visible=False, animated=True)
+            line_id = self.ax2_markers.axvline(0, color='green', linewidth=1, visible=False, animated=True)
+            text_od = self.ax1_markers.text(0, 0, '', color='green', ha='center', va='bottom', animated=True, visible=False)
+            text_id = self.ax2_markers.text(0, 0, '', color='green', ha='center', va='bottom', animated=True, visible=False)
+            self.marker_lines_od.append(line_od)
+            self.marker_lines_id.append(line_id)
+            self.marker_texts_od.append(text_od)
+            self.marker_texts_id.append(text_id)
+
+        # Track if background needs recapture
+        self._bg_stale = True
 
         self.ax1.set_ylabel("Outer Diameter (OD)")
         self.ax2.set_xlabel("Time (s or frames)")
@@ -3398,137 +3602,97 @@ class GraphFrame(ttk.Frame):
         self.toolbar.pack(side=tk.TOP, fill=tk.X, expand=False)
 
     def draw(self):
+        """Update graph using blitting for performance."""
+        if _PROFILE_PROCESSING:
+            import time as _time
+            _t0 = _time.perf_counter()
+
         state = self.state_vars.graph
         if state.clear.get():
             self.clear_graph()
+            return
 
-        Cblue = (0, 0, 200) #Blue outer
-        Cgreen = (0,125, 0) #Dark green inner
+        if not state.dirty.get():
+            return
 
-        # Convert RGB to hexadecimal
-        hex_color_Cblue = '#{:02x}{:02x}{:02x}'.format(C1[0], C1[1], C1[2])
-        hex_color_Cgreen = '#{:02x}{:02x}{:02x}'.format(C2[0], C2[1], C2[2])
+        # Recapture background if stale (after axis changes)
+        if self._bg_stale:
+            self.get_blit_area()
 
-        if state.dirty.get():
-            plot_mask = [b.get() for b in self.state_vars.toolbar.plotting.line_show]
+        # Restore the background
+        self.figure.canvas.restore_region(self.ax1_bg)
 
-            # Clear existing vertical lines and annotations
-            self.clear_markers()
+        # Update main data lines
+        self.od_avg.set_data(state.od_avg.x, state.od_avg.y)
+        self.id_avg.set_data(state.id_avg.x, state.id_avg.y)
 
-            # self.figure.canvas.restore_region(self.ax1_bg)
-            # self.figure.canvas.restore_region(self.ax2_bg)
-            self.od_avg.set_xdata(state.od_avg.x)
-            self.od_avg.set_ydata(state.od_avg.y)
-            self.od_avg.set_color(hex_color_Cblue)
-            self.ax1.draw_artist(self.od_avg)
+        # Draw main lines
+        self.ax1.draw_artist(self.od_avg)
+        self.ax2.draw_artist(self.id_avg)
 
-            self.id_avg.set_xdata(state.id_avg.x)
-            self.id_avg.set_ydata(state.id_avg.y)
-            self.id_avg.set_color(hex_color_Cgreen)
-            self.ax2.draw_artist(self.id_avg)
-
-            self.markers.set_xdata(state.markers.x)
-            self.markers.set_ydata(state.markers.y)
-
-            for i, plot in enumerate(plot_mask):
-                if not plot:
-                    self.od_lines[i].set_xdata([])
-                    self.od_lines[i].set_ydata([])
-                    self.id_lines[i].set_xdata([])
-                    self.id_lines[i].set_ydata([])
-                    continue
-
-                self.od_lines[i].set_xdata(state.od_lines[i].x)
-                self.od_lines[i].set_ydata(state.od_lines[i].y)
-                self.od_lines[i].set_color(f"C{i}")
+        # Update multi-ROI lines
+        plot_mask = [b.get() for b in self.state_vars.toolbar.plotting.line_show]
+        for i, show in enumerate(plot_mask):
+            if show and len(state.od_lines[i].x) > 0:
+                self.od_lines[i].set_data(state.od_lines[i].x, state.od_lines[i].y)
+                self.id_lines[i].set_data(state.id_lines[i].x, state.id_lines[i].y)
                 self.ax1.draw_artist(self.od_lines[i])
-
-                self.id_lines[i].set_xdata(state.id_lines[i].x)
-                self.id_lines[i].set_ydata(state.id_lines[i].y)
-                self.id_lines[i].set_color(f"C{i}")
                 self.ax2.draw_artist(self.id_lines[i])
+            else:
+                self.od_lines[i].set_data([], [])
+                self.id_lines[i].set_data([], [])
 
-            
-            #marker_coords = [state.od_avg.x[0], state.od_avg.x[len(state.od_avg.x) // 2], state.od_avg.x[-1]]
-            #
-            #for i, x in enumerate(marker_coords):
-            #    color = 'red'
-            #
-            #    # Create Line2D objects for vertical lines
-            #    line1 = Line2D([x, x], [self.ylim_od[0], self.ylim_od[1]], color=color, linestyle='--')
-            #    line2 = Line2D([x, x], [self.ylim_id[0], self.ylim_id[1]], color=color, linestyle='--')
-            #
-            #    # Add the lines to the axes
-            #    self.ax1_markers.add_line(line1)
-            #    self.ax2_markers.add_line(line2)
-            #
+        # Update markers using pre-created objects (no new objects created)
+        marker_idx = 0
+        for x, y in zip(state.markers.x, state.markers.y):
+            if y == 1 and marker_idx < self.max_markers:
+                # Update marker line positions
+                self.marker_lines_od[marker_idx].set_xdata([x, x])
+                self.marker_lines_od[marker_idx].set_visible(True)
+                self.marker_lines_id[marker_idx].set_xdata([x, x])
+                self.marker_lines_id[marker_idx].set_visible(True)
+                # Update marker text
+                self.marker_texts_od[marker_idx].set_position((x, self.ylim_od[1]))
+                self.marker_texts_od[marker_idx].set_text(str(marker_idx + 1))
+                self.marker_texts_od[marker_idx].set_visible(True)
+                self.marker_texts_id[marker_idx].set_position((x, self.ylim_id[1]))
+                self.marker_texts_id[marker_idx].set_text(str(marker_idx + 1))
+                self.marker_texts_id[marker_idx].set_visible(True)
+                marker_idx += 1
 
-            # Create Line2D objects for markers on both axes
-            self.od_markers_line = Line2D([], [], color='red', marker='o', markersize=5, linewidth=1, label='Markers', linestyle='-')
-            self.id_markers_line = Line2D([], [], color='red', marker='o', markersize=5, linewidth=1, label='Markers', linestyle='-')
+        # Hide unused markers
+        for i in range(marker_idx, self.max_markers):
+            self.marker_lines_od[i].set_visible(False)
+            self.marker_lines_id[i].set_visible(False)
+            self.marker_texts_od[i].set_visible(False)
+            self.marker_texts_id[i].set_visible(False)
 
-            # Add the marker lines to their respective axes
-            self.ax1_markers.add_line(self.od_markers_line)
-            self.ax2_markers.add_line(self.id_markers_line)
+        # Draw markers
+        for i in range(marker_idx):
+            self.ax1_markers.draw_artist(self.marker_lines_od[i])
+            self.ax2_markers.draw_artist(self.marker_lines_id[i])
+            self.ax1_markers.draw_artist(self.marker_texts_od[i])
+            self.ax2_markers.draw_artist(self.marker_texts_id[i])
 
-            # Update marker positions based on state.markers.y
-            marker_x = []
-            od_marker_y = []
-            id_marker_y = []
+        # Update vertical indicator
+        if state.vertical_indicator is not None:
+            self.ax1_vline.set_xdata([state.vertical_indicator, state.vertical_indicator])
+            self.ax2_vline.set_xdata([state.vertical_indicator, state.vertical_indicator])
+            self.ax1_vline.set_visible(True)
+            self.ax2_vline.set_visible(True)
+            self.ax1.draw_artist(self.ax1_vline)
+            self.ax2.draw_artist(self.ax2_vline)
+        else:
+            self.ax1_vline.set_visible(False)
+            self.ax2_vline.set_visible(False)
 
-            # Create Line2D objects for markers
-            count = 1
-            for x, y in zip(state.markers.x, state.markers.y):
-                if y == 1:
-                    color = 'green'
-                    marker_line_od = Line2D([x, x], [self.ylim_od[0], self.ylim_od[1]], color=color, marker='o', markersize=5, linewidth=1)
-                    marker_line_id = Line2D([x, x], [self.ylim_id[0], self.ylim_id[1]], color=color, marker='o', markersize=5, linewidth=1)
+        # Blit the updated region
+        self.figure.canvas.blit(self.figure.bbox)
 
-                    # Add the lines to the axes
-                    self.ax1_markers.add_line(marker_line_od)
-                    self.ax2_markers.add_line(marker_line_id)
+        if _PROFILE_PROCESSING:
+            print(f"TIMING: plot_draw={(_time.perf_counter()-_t0)*1000:.1f}ms")
 
-                    # Add labels
-                    self.ax1_markers.annotate(
-                        f"{int(count)}",  # Convert x to integer for label
-                        (x, self.ylim_od[1]),
-                        xytext=(0, 5),
-                        textcoords='offset points',
-                        color=color,
-                        ha='center',
-                        va='center'
-                    )
-
-                    self.ax2_markers.annotate(
-                        f"{int(count)}",  # Convert x to integer for label
-                        (x, self.ylim_id[1]),
-                        xytext=(0, 5),
-                        textcoords='offset points',
-                        color=color,
-                        ha='center',
-                        va='center'
-                    )
-                    count += 1
-
-            if state.vertical_indicator is not None:
-                self.ax1_vline.set_xdata([state.vertical_indicator])
-                self.ax2_vline.set_xdata([state.vertical_indicator])
-
-
-            self.figure.canvas.draw()
-
-            # self.figure.canvas.blit(self.ax1.bbox)
-            # self.figure.canvas.blit(self.ax2.bbox)
-
-            state.dirty.set(False)
-
-    def clear_markers(self):
-        # Remove existing vertical lines and text annotations
-        for line in self.ax1_markers.lines + self.ax2_markers.lines:
-            line.remove()
-
-        for text in self.ax1_markers.texts + self.ax2_markers.texts:
-            text.remove()
+        state.dirty.set(False)
 
     def update_lims(self):
         settings = self.state_vars.toolbar.graph
@@ -3544,10 +3708,10 @@ class GraphFrame(ttk.Frame):
         self.ax1_markers.set_ylim(*self.ylim_od)
         self.ax2_markers.set_ylim(*self.ylim_id)
 
-        # After setting up your initial plot and axes limits
-        self.figure.canvas.draw()  # Draw the canvas with the initial plot
-        self.toolbar.update()  # Update the navigation toolbar to reflect the current state
-        #self.toolbar.push_current()  # Push the current view to the stack to set it as the 'home' position
+        # Mark background as stale so it gets recaptured on next draw
+        self._bg_stale = True
+        self.figure.canvas.draw()
+        self.toolbar.update()
 
 
     def update_lims_callback(self):
@@ -3604,7 +3768,8 @@ class GraphFrame(ttk.Frame):
                 print("Could not update inner diameter limits due to:", e)
                 pass
 
-            # Redraw the figure canvas
+            # Mark background as stale and redraw
+            self._bg_stale = True
             self.figure.canvas.draw()
 
             # Reset the limits dirty flag
@@ -3613,19 +3778,23 @@ class GraphFrame(ttk.Frame):
 
 
     def clear_graph(self):
-
+        """Clear all graph data."""
         state = self.state_vars.graph
-        # Clear the lines and data in both subplots (ax1 and ax2)
-        self.od_avg.set_xdata([])
-        self.od_avg.set_ydata([])
-        self.id_avg.set_xdata([])
-        self.id_avg.set_ydata([])
+
+        # Clear the line data (don't create new Line2D objects)
+        self.od_avg.set_data([], [])
+        self.id_avg.set_data([], [])
 
         for i in range(NUM_LINES):
-            self.od_lines[i].set_xdata([])
-            self.od_lines[i].set_ydata([])
-            self.id_lines[i].set_xdata([])
-            self.id_lines[i].set_ydata([])
+            self.od_lines[i].set_data([], [])
+            self.id_lines[i].set_data([], [])
+
+        # Hide all markers
+        for i in range(self.max_markers):
+            self.marker_lines_od[i].set_visible(False)
+            self.marker_lines_id[i].set_visible(False)
+            self.marker_texts_od[i].set_visible(False)
+            self.marker_texts_id[i].set_visible(False)
 
         # Clear the data stored in state variables
         state.od_avg.x = []
@@ -3639,10 +3808,10 @@ class GraphFrame(ttk.Frame):
             state.id_lines[i].x = []
             state.id_lines[i].y = []
 
-        (self.od_avg,) = self.ax1.plot([], [])
-        (self.id_avg,) = self.ax2.plot([], [])
+        state.clear.set(False)
 
-        # Redraw the cleared graph
+        # Redraw with cleared data
+        self._bg_stale = True
         self.figure.canvas.draw()
 
 
@@ -3940,6 +4109,10 @@ class CameraFrame(ctk.CTkFrame):
         state.roi_cleanup.clear()
 
     def show_image(self):
+        if _PROFILE_PROCESSING:
+            import time as _time
+            _t0 = _time.perf_counter()
+
         width = self.canvas.winfo_width()
         height = self.canvas.winfo_height()
         # NOTE(cmo): Edge case while the app is setting up
@@ -3951,13 +4124,25 @@ class CameraFrame(ctk.CTkFrame):
             return
 
         image = Image.fromarray(im_data)
+
+        if _PROFILE_PROCESSING:
+            _t1 = _time.perf_counter()
+
         resized = resize_image_to_fit(image, width, height)
+
+        if _PROFILE_PROCESSING:
+            _t2 = _time.perf_counter()
+
         state.im_presented_size = (resized.height, resized.width)
         x_centre = width // 2
         y_centre = height // 2
         state.im_centre = (y_centre, x_centre)
 
         tk_image = ImageTk.PhotoImage(resized)
+
+        if _PROFILE_PROCESSING:
+            _t3 = _time.perf_counter()
+
         # NOTE(cmo): Need to assign this image to the class or it gets gc'd
         self.tk_image = tk_image
         if self.canvas_image_id is not None:
@@ -3971,6 +4156,10 @@ class CameraFrame(ctk.CTkFrame):
                 anchor=tk.CENTER,
                 image=tk_image,
             )
+
+        if _PROFILE_PROCESSING:
+            _t4 = _time.perf_counter()
+            print(f"TIMING: show_image: fromarray={(_t1-_t0)*1000:.1f}ms, resize={(_t2-_t1)*1000:.1f}ms, PhotoImage={(_t3-_t2)*1000:.1f}ms, canvas={(_t4-_t3)*1000:.1f}ms, TOTAL={(_t4-_t0)*1000:.1f}ms")
 
     def show_image_callback(self, *args):
         im_dirty = self.state_vars.cam_show.dirty
@@ -4717,6 +4906,9 @@ class Controller:
             '''
             self.setup_files()
             if self.model.state.app.tracking.get():
+                # Stopping tracking - close output files
+                self.model.close_tiff_writers()
+                self.model.close_output_files()
                 self.model.state.app.tracking.set(False)
                 self.model.state.app.acquiring.set(False)
                 self.model.state.app.file_analysed.set(0)
@@ -4746,6 +4938,10 @@ class Controller:
                         current_time = time.time()
                         self.model.start_time = current_time
                     current_state = self.model.state.app.tracking.get()
+                    if current_state:
+                        # Stopping tracking - close output files
+                        self.model.close_tiff_writers()
+                        self.model.close_output_files()
                     self.model.state.app.tracking.set(not current_state)
 
     def start_tracking_file(self):
@@ -4821,6 +5017,10 @@ class Controller:
 
     def setup_files(self):
         if self.output_path:
+            # Close previous files before opening new ones
+            self.model.close_tiff_writers()
+            self.model.close_output_files()
+
             self.model.setup_output_files(output_path=self.output_path)
             self.model.state.table.clear.set(True)
             self.model.state.graph.clear.set(True)
@@ -4830,7 +5030,10 @@ class Controller:
     def menu_new_file(self):
         if tmb.askokcancel("New experiment...", "Are you sure?"):
             self.model.state.app.tracking.set(False)
-            self.model.state.app.tracking.set(False)
+
+            # Close previous files before starting new ones
+            self.model.close_tiff_writers()
+            self.model.close_output_files()
 
             self.output_path = None
             self.output_path = self.get_output_filename()
@@ -4839,7 +5042,6 @@ class Controller:
 
                 self.model.state.table.clear.set(True)
                 self.model.state.graph.clear.set(True)
-            #TODO: Clear all data!!!
 
     def menu_load_settings(self):
         settings_filename = filedialog.askopenfilename(
@@ -5210,28 +5412,46 @@ def initialize_controller():
 if __name__ == "__main__":
     freeze_support()
 
-    # **Create Main Window but Keep it Hidden**
-    root = tk.Tk()
-    root.withdraw()  # Keep it hidden until registration is resolved
-    root.iconbitmap(os.path.join(images_folder, 'vt_icon.ICO'))
-    root.state("zoomed")
-
-    ctk.set_default_color_theme(gui_json_path)
-
-    # **Show Splash Screen**
-    show_splash()
 
     # **Find MicroManager Path**
     mm_path = find_micromanager()
     print(mm_path)
 
     if mm_path is None:
-        tmb.showinfo("Warning", "MicroManager not installed. Please download and install then relaunch VasoTracker.")
+        # Try to auto-install Micro-Manager
+        try:
+            tmb.showinfo("Installing Micro-Manager",
+                        "Micro-Manager not found. Installing automatically...\n\n"
+                        "This may take a few minutes on first run.")
+            from pymmcore_plus.install import install
+            install()
+            mm_path = find_micromanager()
+        except Exception as e:
+            print(f"Auto-install failed: {e}")
+            mm_path = None
+
+    if mm_path is None:
+        # Auto-install failed, show manual instructions
+        tmb.showinfo("Warning", "MicroManager could not be installed. Please download and install manually, then relaunch VasoTracker.")
         webbrowser.open_new("https://download.micro-manager.org/nightly/2.0/Windows/")
         root.destroy()
         sys.exit()
-    else:
-        mmc = CMMCorePlus(adapter_paths=[mm_path, SYS32_PATH, BASLER_PATH, BASLER_PATH2])
+
+    mmc = CMMCorePlus(adapter_paths=[mm_path, SYS32_PATH])
+
+
+    # **Create Main Window but Keep it Hidden**
+    root = tk.Tk()
+    root.withdraw()  # Keep it hidden until registration is resolved
+    root.iconbitmap(os.path.join(images_folder, 'vt_icon.ICO'))
+    root.state("zoomed")
+
+    ctk.set_appearance_mode("light")
+    ctk.set_default_color_theme(gui_json_path)
+
+    # **Show Splash Screen**
+    show_splash()
+
 
     if not is_pydaqmx_available:
         tmb.showinfo("Warning", "niDAQmx not found. Please install to enable automatic pressure control.")
@@ -5305,7 +5525,7 @@ if __name__ == "__main__":
     root.iconbitmap(os.path.join(images_folder, 'vt_icon.ICO'))
     #root.withdraw()
 
-    ctk.set_default_color_theme("C:\\Users\\Calum\\Documents\\GitHub\\VasoTracker-2_GUI_new\\vasotracker 2.0\\VasoTrackerblue.json")
+    ctk.set_default_color_theme(os.path.join(base_path, "VasoTrackerblue.json"))
 
     mm_path = find_micromanager()
 
@@ -5319,7 +5539,7 @@ if __name__ == "__main__":
         root.destroy()
         sys.exit()
     else:
-        mmc = CMMCorePlus(adapter_paths=[mm_path, SYS32_PATH, BASLER_PATH, BASLER_PATH2])
+        mmc = CMMCorePlus(adapter_paths=[mm_path, SYS32_PATH])
 
     if not is_pydaqmx_available:
         tmb.showinfo("Warning", "niDAQmx not found. Please install to enable automatic pressure control.")

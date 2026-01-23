@@ -33,8 +33,7 @@ class AcquisitionSettings(Configurator):
     exposure: int = 50
     pixel_clock: int = 10
     recording_interval: float = 300.0
-    refresh_min_interval: float = 0.0000002
-    refresh_faster_interval: float = 0.001
+    target_fps: float = 10.0  # Target frame rate in Hz
 
     def set_values(self, state: "VtState"):
         acq = state.toolbar.acq
@@ -42,6 +41,7 @@ class AcquisitionSettings(Configurator):
         acq.exposure.set(self.exposure)
         acq.pixel_clock.set(self.pixel_clock)
         acq.rec_interval.set(self.recording_interval)
+        acq.target_fps.set(self.target_fps)
 
     @classmethod
     def from_state(cls, state: "VtState"):
@@ -50,11 +50,13 @@ class AcquisitionSettings(Configurator):
         exposure = acq.exposure.get()
         pixel_clock = acq.pixel_clock.get()
         recording_interval = acq.rec_interval.get()
+        target_fps = acq.target_fps.get()
         return cls(
             pixel_world_scale=scale,
             exposure=exposure,
             pixel_clock=pixel_clock,
             recording_interval=recording_interval,
+            target_fps=target_fps,
         )
 
 

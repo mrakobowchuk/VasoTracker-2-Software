@@ -41,12 +41,6 @@ VasoTracker can be installed using either the standalone executable file for str
 
 ***This method is recommended for most users.***
 
-#### Prerequisites
-
-1. **Install uManager:**
-   - Visit the [µManager Downloads Page](https://micro-manager.org/wiki/Download_Micro-Manager_Latest_Release) and download the latest **2.0.3 (20240424) nightly build** of µManager for your operating system.
-   - Follow the provided instructions to install µManager on your computer.
-
 #### Steps:
 
 1. **Download the latest VasoTracker release:**
@@ -60,6 +54,36 @@ VasoTracker can be installed using either the standalone executable file for str
 3. **Run VasoTracker:**
    - Navigate to the extracted folder.
    - Double-click the executable file to start the application.
+   - **On first run**, VasoTracker will automatically download and install the required Micro-Manager components. This may take a few minutes.
+
+#### Using Webcams and USB Cameras
+
+VasoTracker supports Basler and Thorlabs cameras out of the box. For webcams and USB cameras, you have two options:
+
+**Option 1: Native OpenCV (Recommended)**
+- Simply select **"OpenCV"** from the camera dropdown
+- Works immediately with any USB camera or webcam
+- No configuration required
+
+**Option 2: Micro-Manager Configuration (Advanced)**
+
+For cameras requiring specific Micro-Manager device adapters:
+
+1. **Open Micro-Manager** (automatically installed by VasoTracker):
+   ```
+   C:\Users\<YourName>\AppData\Local\pymmcore-plus\pymmcore-plus\mm\<version>\ImageJ.exe
+   ```
+
+2. **Create a hardware configuration:**
+   - Go to **Devices > Hardware Configuration Wizard**
+   - Add your camera device
+   - Complete the wizard and save the configuration
+
+3. **Save the config file:**
+   - Save as `MMConfig.cfg` in your VasoTracker folder
+
+4. **Select your camera in VasoTracker:**
+   - Choose "MMConfig" as your camera type
 
 ### Option 2: Installing from Source Using Anaconda
 
@@ -70,28 +94,33 @@ VasoTracker can be installed using either the standalone executable file for str
 1. **Clone the Repository:**
    - Clone the VasoTracker repository to your local machine using:
      ```
-     git clone URL-to-VasoTracker-repository
+     git clone https://github.com/VasoTracker/VasoTracker-2-Software.git
      ```
 
 2. **Set Up the Anaconda Environment:**
    - Navigate to the directory where you cloned the repository.
-   - Use the provided `environment.yml` file to create the VasoTracker Anaconda environment. This file includes the necessary Python version and all dependencies:
+   - Use the provided `environment.yml` file to create the VasoTracker Anaconda environment:
      ```
      conda env create -f environment.yml
      ```
-   - This command will download Python and all the dependencies listed in the `environment.yml` file, setting up a self-contained environment tailored for VasoTracker.
 
 3. **Activate the Environment:**
-   - Activate the newly created environment to switch to it:
+   - Activate the newly created environment:
      ```
      conda activate vasotracker2
      ```
 
-4. **Run or Modify VasoTracker:**
-   - You are now ready to run or modify the VasoTracker software. Navigate to the folder and run or edit the code as needed.
-   - To run vasotracker from source, use the following command:
+4. **Install Micro-Manager Components:**
+   - Install the required Micro-Manager device adapters:
      ```
-     python vasotracker2.py
+     mmcore install
+     ```
+
+5. **Run VasoTracker:**
+   - Navigate to the vasotracker_2 folder and run:
+     ```
+     cd vasotracker_2
+     python vasotracker_2.py
      ```
 
 This approach ensures you have a development environment configured with all necessary dependencies, allowing you to modify or use VasoTracker immediately.

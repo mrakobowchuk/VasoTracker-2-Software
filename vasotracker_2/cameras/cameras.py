@@ -1,6 +1,7 @@
 import os
 import traceback
 import numpy as np
+import cv2
 
 import skimage
 from . import CameraBase
@@ -193,6 +194,88 @@ class MManagerCamera(CameraBase, camera_name="MMConfig"):
             image = ((image / 65535) * 255).astype(np.uint8)
         return image
 
+
+class OpenCVCamera(CameraBase, camera_name="OpenCV"):
+    """Native OpenCV camera - works with any USB camera/webcam without Micro-Manager."""
+
+    def __init__(self, mmc: CMMCorePlus, state, config):
+        super().__init__(mmc, state, config)
+        self.cap = None
+        self.camera_index = 0  # Default to first camera
+        self.width = 640
+        self.height = 480
+        self._last_frame = None
+        self.running = False
+
+    def start_acquisition(self):
+        # Use DirectShow backend on Windows for faster camera initialization
+        self.cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
+        if not self.cap.isOpened():
+            tmb.showinfo("Camera Error", f"Could not open camera {self.camera_index}")
+            return
+        # Set resolution
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+        # Get actual resolution (may differ from requested)
+        self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.running = True
+
+    def stop_acquisition(self):
+        self.running = False
+
+    def shutdown(self):
+        self.running = False
+        if self.cap is not None:
+            self.cap.release()
+            self.cap = None
+
+    def get_image(self):
+        if self.cap is None or not self.cap.isOpened():
+            return self._last_frame if self._last_frame is not None else np.zeros((self.height, self.width), dtype=np.uint8)
+        ret, frame = self.cap.read()
+        if ret:
+            # Convert BGR to grayscale 8-bit
+            if len(frame.shape) == 3:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = frame
+            self._last_frame = gray.astype(np.uint8)
+            return self._last_frame
+        return self._last_frame if self._last_frame is not None else np.zeros((self.height, self.width), dtype=np.uint8)
+
+    def image_ready(self):
+        return self.cap is not None and self.cap.isOpened()
+
+    def is_buffer_empty(self):
+        return 1 if self.image_ready() else 0
+
+    def get_camera_dims(self):
+        return self.width, self.height
+
+    def set_exposure(self, exposure):
+        if self.cap is not None:
+            # OpenCV exposure is camera-dependent, may not work on all cameras
+            self.cap.set(cv2.CAP_PROP_EXPOSURE, exposure)
+
+    def set_resolution(self, width, height):
+        self.width = width
+        self.height = height
+        if self.cap is not None:
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+
+    def load_device(self):
+        pass  # No MM device to load
+
+    def reset(self):
+        self.shutdown()
+
+    def set_fov(self, x, y, xSize, ySize):
+        pass  # ROI not supported via OpenCV
+
+    def set_pixel_clock(self, pix_clock):
+        pass  # Not applicable
 
 
 '''

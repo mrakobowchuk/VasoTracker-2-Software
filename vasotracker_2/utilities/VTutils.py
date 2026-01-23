@@ -523,8 +523,6 @@ def process_ddts(
 
                         OD2 = peaks_indices[arg3]
                         OD2_ = peaks_indices[arg3] + start_x[j]
-                        
-                        print("Detected ultrasound artery - using standard detection")
                     else:
                         OD1_ = 0
                         OD2_ = nx
@@ -594,7 +592,6 @@ def process_ddts(
                 ID1_ = OD1_
                 ID2 = OD2
                 ID2_ = OD2_
-                print("ID1, ID2: ",ID1, ID2)
 
         except:
             ID1_ = 0
