@@ -5594,10 +5594,10 @@ if __name__ == "__main__":
             "Try increasing the resolution or resizing the window for a better experience."
             )
     
-    def maximize_window():
+    def do_maximize_window():
         maximize_window(root)
     root.geometry(f'{screen_width}x{screen_height}')  
-    root.after(100, maximize_window)
+    root.after(100, do_maximize_window)
 
     ###TODO: Need a way to wait until the pop-up information box is removed to load GUI. Otherwise it loads it the wrong size.
 
