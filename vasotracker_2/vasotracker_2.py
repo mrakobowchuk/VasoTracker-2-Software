@@ -134,7 +134,8 @@ is_pydaqmx_available = utilities.VT_Pressure.is_pydaqmx_available()#False
 print("Is PYDAQMX = ", is_pydaqmx_available)
 
 # Constants
-SYS32_PATH = "C:/WINDOWS/SYSTEM32/DRIVERs/"
+# SYS32_PATH is only needed on Windows (provides extra NI DAQ driver visibility)
+SYS32_PATH = "C:/WINDOWS/SYSTEM32/DRIVERs/" if sys.platform == "win32" else None
 
 NUM_LINES = 10
 NUM_ROIS = 10
@@ -163,10 +164,41 @@ def get_resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
+def maximize_window(root):
+    """Maximize the root window in a cross-platform manner."""
+    if sys.platform == "win32":
+        root.state("zoomed")
+    elif sys.platform == "darwin":
+        # macOS: use geometry to fill the screen
+        root.update_idletasks()
+        sw = root.winfo_screenwidth()
+        sh = root.winfo_screenheight()
+        root.geometry(f"{sw}x{sh}+0+0")
+    else:
+        # Linux / other X11
+        root.attributes("-zoomed", True)
+
+
+def set_window_icon(win, icon_path):
+    """Set the window icon in a cross-platform manner.
+
+    On macOS, Tkinter does not support .ICO files via iconbitmap and will
+    silently fail or raise; we catch and ignore the error on non-Windows
+    platforms.
+    """
+    if sys.platform == "win32":
+        win.iconbitmap(icon_path)
+    else:
+        try:
+            win.iconbitmap(icon_path)
+        except Exception:
+            pass
+
+
 
 # Resource paths
-images_folder = get_resource_path("images\\")
-sample_data_path = get_resource_path("SampleData\\")
+images_folder = get_resource_path(os.path.join("images", ""))
+sample_data_path = get_resource_path(os.path.join("SampleData", ""))
 gui_json_path = get_resource_path("VasoTrackerblue.json")
 
 # TODOs and Future Improvements
@@ -4180,11 +4212,11 @@ class View(ctk.CTkFrame):
     ):
         super().__init__(root)
         self.root = root
-        root.iconbitmap(os.path.join(images_folder, 'vt_icon.ICO')) #(Path(__file__).parent / "images" / "VasoTracker_Icon.ICO") #
+        set_window_icon(root, os.path.join(images_folder, 'vt_icon.ICO')) #(Path(__file__).parent / "images" / "VasoTracker_Icon.ICO") #
         root.wm_title(f"VasoTracker {__version__}")
 
         # Maximize the window without covering the taskbar
-        root.state('zoomed')
+        maximize_window(root)
 
         self.state_vars = state
         self.menus = Menus(root)
@@ -5129,7 +5161,7 @@ class Controller:
 
         # Set the window icon to be the same as the main window
         icon_path = os.path.join(images_folder, 'vt_icon.ICO')#Path(__file__).parent / "images" / "VasoTracker_Icon.ICO"
-        popup.iconbitmap(icon_path)
+        set_window_icon(popup, icon_path)
 
         # Ensure the popup window is non-resizable (if needed)
         popup.resizable(False, False)
@@ -5151,7 +5183,7 @@ class Controller:
 
         # Set the window icon to be the same as the main window
         icon_path = os.path.join(images_folder, 'vt_icon.ICO')#Path(__file__).parent / "images" / "VasoTracker_Icon.ICO"
-        popup.iconbitmap(icon_path)
+        set_window_icon(popup, icon_path)
 
         # Ensure the popup window is non-resizable (if needed)
         popup.resizable(False, False)
@@ -5174,7 +5206,7 @@ class Controller:
 
         # Set the window icon to be the same as the main window
         icon_path = os.path.join(images_folder, 'vt_icon.ICO')#Path(__file__).parent / "images" / "VasoTracker_Icon.ICO"
-        popup.iconbitmap(icon_path)
+        set_window_icon(popup, icon_path)
 
         # Ensure the popup window is non-resizable (if needed)
         popup.resizable(False, False)
@@ -5204,7 +5236,7 @@ class Controller:
 
         # Set the window icon to be the same as the main window
         icon_path = os.path.join(images_folder, 'vt_icon.ICO')#Path(__file__).parent / "images" / "VasoTracker_Icon.ICO"
-        popup.iconbitmap(icon_path)
+        set_window_icon(popup, icon_path)
 
         # Ensure the popup window is non-resizable (if needed)
         popup.resizable(False, False)
@@ -5238,7 +5270,7 @@ class Controller:
 
         # Set the window icon to be the same as the main window
         icon_path = os.path.join(images_folder, 'vt_icon.ICO')  # Path to the icon file
-        popup.iconbitmap(icon_path)
+        set_window_icon(popup, icon_path)
         
         # Ensure the popup window is non-resizable
         popup.resizable(False, False)
@@ -5271,7 +5303,7 @@ class Controller:
 
         # Set the window icon to be the same as the main window
         icon_path = os.path.join(images_folder, 'vt_icon.ICO')#Path(__file__).parent / "images" / "VasoTracker_Icon.ICO"
-        popup.iconbitmap(icon_path)
+        set_window_icon(popup, icon_path)
 
         # Ensure the popup window is non-resizable (if needed)
         popup.resizable(False, False)
@@ -5297,7 +5329,7 @@ class Controller:
 
             # Set the window icon to be the same as the main window
             icon_path = os.path.join(images_folder, 'vt_icon.ICO')#Path(__file__).parent / "images" / "VasoTracker_Icon.ICO"
-            popup.iconbitmap(icon_path)
+            set_window_icon(popup, icon_path)
 
             #popup.grab_set()  # Make the popup window modal
 
@@ -5437,14 +5469,14 @@ if __name__ == "__main__":
         root.destroy()
         sys.exit()
 
-    mmc = CMMCorePlus(adapter_paths=[mm_path, SYS32_PATH])
+    mmc = CMMCorePlus(adapter_paths=[p for p in [mm_path, SYS32_PATH] if p is not None])
 
 
     # **Create Main Window but Keep it Hidden**
     root = tk.Tk()
     root.withdraw()  # Keep it hidden until registration is resolved
-    root.iconbitmap(os.path.join(images_folder, 'vt_icon.ICO'))
-    root.state("zoomed")
+    set_window_icon(root, os.path.join(images_folder, 'vt_icon.ICO'))
+    maximize_window(root)
 
     ctk.set_appearance_mode("light")
     ctk.set_default_color_theme(gui_json_path)
@@ -5522,7 +5554,7 @@ if __name__ == "__main__":
     freeze_support()
 
     root = ctk.CTk()
-    root.iconbitmap(os.path.join(images_folder, 'vt_icon.ICO'))
+    set_window_icon(root, os.path.join(images_folder, 'vt_icon.ICO'))
     #root.withdraw()
 
     ctk.set_default_color_theme(os.path.join(base_path, "VasoTrackerblue.json"))
@@ -5539,7 +5571,7 @@ if __name__ == "__main__":
         root.destroy()
         sys.exit()
     else:
-        mmc = CMMCorePlus(adapter_paths=[mm_path, SYS32_PATH])
+        mmc = CMMCorePlus(adapter_paths=[p for p in [mm_path, SYS32_PATH] if p is not None])
 
     if not is_pydaqmx_available:
         tmb.showinfo("Warning", "niDAQmx not found. Please install to enable automatic pressure control.")
@@ -5562,10 +5594,10 @@ if __name__ == "__main__":
             "Try increasing the resolution or resizing the window for a better experience."
             )
     
-    def maximize_window():
-        root.state("zoomed")
+    def do_maximize_window():
+        maximize_window(root)
     root.geometry(f'{screen_width}x{screen_height}')  
-    root.after(100, maximize_window)
+    root.after(100, do_maximize_window)
 
     ###TODO: Need a way to wait until the pop-up information box is removed to load GUI. Otherwise it loads it the wrong size.
 

@@ -39,7 +39,7 @@ pressure_interval = 20.0
 property_gain = 240
 
 [proxy_camera]
-path_template = "\\SampleData\\TEST{:04d}.tif"
+path_template = "SampleData/TEST{:04d}.tif"
 max_frame = 300
 
 [registration]

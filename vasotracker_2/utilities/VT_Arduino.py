@@ -49,7 +49,7 @@ from skimage import io
 import skimage
 from skimage import measure
 import serial
-import win32com.client
+import serial.tools.list_ports
 import webbrowser
 
 import colorama
@@ -100,17 +100,11 @@ class Arduino:
         self._lock = threading.Lock()
 
         ### Finds COM port that the Arduino is on (assumes only one Arduino is connected)
-        wmi = win32com.client.GetObject("winmgmts:")
+        # Uses pyserial's list_ports for cross-platform support (Windows, macOS, Linux)
         ArduinoComs = []
-        for port in wmi.InstancesOf("Win32_SerialPort"):
-            # print port.Name #port.DeviceID, port.Name
-            if "Arduino" in port.Name:
-                comPort = port.DeviceID
-                ArduinoComs.append(comPort)
-                #print(
-                #    colorama.Fore.GREEN + comPort + colorama.Style.RESET_ALL,
-                #    "is Arduino",
-                #)
+        for port_info in serial.tools.list_ports.comports():
+            if "Arduino" in (port_info.description or "") or "Arduino" in (port_info.manufacturer or ""):
+                ArduinoComs.append(port_info.device)
         self.PORTS = []
         for i, comPort in enumerate(ArduinoComs):
             GLOBAL_PORT = serial.Serial(comPort, baudrate=9600, dsrdtr=True, timeout=0.1)
