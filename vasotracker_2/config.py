@@ -203,7 +203,7 @@ class TisDcamSettings:
 @dataclass
 class ProxyCameraSettings:
     #initialdir = os.getcwd()
-    path_template: str = "\\SampleData\\TEST{:04d}.tif" #f'{initialdir}' + "\\SampleData\\TEST{:d}.tif" #
+    path_template: str = os.path.join("SampleData", "TEST{:04d}.tif")
     max_frame: int = 300
 
 @dataclass

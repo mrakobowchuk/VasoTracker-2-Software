@@ -208,8 +208,13 @@ class OpenCVCamera(CameraBase, camera_name="OpenCV"):
         self.running = False
 
     def start_acquisition(self):
-        # Use DirectShow backend on Windows for faster camera initialization
-        self.cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
+        # Use platform-appropriate backend for faster camera initialization
+        if sys.platform == "win32":
+            self.cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
+        elif sys.platform == "darwin":
+            self.cap = cv2.VideoCapture(self.camera_index, cv2.CAP_AVFOUNDATION)
+        else:
+            self.cap = cv2.VideoCapture(self.camera_index)
         if not self.cap.isOpened():
             tmb.showinfo("Camera Error", f"Could not open camera {self.camera_index}")
             return

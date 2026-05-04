@@ -39,8 +39,8 @@ def get_resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # Resource paths
-images_folder = get_resource_path("images\\")
-sample_data_path = get_resource_path("SampleData\\")
+images_folder = get_resource_path(os.path.join("images", ""))
+sample_data_path = get_resource_path(os.path.join("SampleData", ""))
 
 
 ##################################################
@@ -64,7 +64,11 @@ class VasoTrackerSplashScreen(ctk.CTkFrame):
     # Set up a new top level window for the splash screen
         self.splash_win= Toplevel(self.master)
         self.splash_win.title("Let us know you use VasoTracker")
-        self.splash_win.iconbitmap(os.path.join(images_folder, 'vt_icon.ICO'))#('images\VasoTracker_Icon.ICO')
+        if sys.platform == "win32":
+            try:
+                self.splash_win.iconbitmap(os.path.join(images_folder, 'vt_icon.ICO'))
+            except Exception:
+                pass
         #self.splash_win.geometry("700x200")
         self.splash_win.config(bg='#0B5A81')
     # make the top right close button minimize (iconify) the main window
