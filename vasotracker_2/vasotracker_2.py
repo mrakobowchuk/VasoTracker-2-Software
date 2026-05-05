@@ -1653,8 +1653,9 @@ class Model:
                     '''
                     Load an image and have it show. The image will not be analysed until the analyse button is pressed and self.tracking is True.
                     '''
-                    slider_img = camera.get_specific_frame(self.state.cam_show.slider_position_manual)
-                    slider_index = int(self.state.cam_show.slider_position_manual)
+                    slider_var = self.state.cam_show.slider_position_manual
+                    slider_index = slider_var.get() if hasattr(slider_var, "get") else int(slider_var)
+                    slider_img = camera.get_specific_frame(slider_index)
                     self.queue.put(slider_img)
                     self.queue.empty()
                     # NOTE(cmo): Don't spin super fast on the same frame in this state!
@@ -1692,7 +1693,9 @@ class Model:
                         self.state.cam_show.slider_change_state.set(True)
                     
                     # Show the images as we analyse them
-                    slider_img = camera.get_specific_frame(self.state.cam_show.slider_position_manual)
+                    slider_var = self.state.cam_show.slider_position_manual
+                    slider_index = slider_var.get() if hasattr(slider_var, "get") else int(slider_var)
+                    slider_img = camera.get_specific_frame(slider_index)
                     self.queue.put(slider_img)
                     self.queue.empty()
 
@@ -1723,8 +1726,10 @@ class Model:
                 This runs after we have analysed a file and allows us to scroll through the images and plotted graph.
                 '''
                 if camera is not None and camera.camera_name == "Image from file":
-                    slider_img = camera.get_specific_frame(self.state.cam_show.slider_position_manual)
-                    slider_index = int(self.state.cam_show.slider_position_manual) - 1
+                    slider_var = self.state.cam_show.slider_position_manual
+                    slider_position = slider_var.get() if hasattr(slider_var, "get") else int(slider_var)
+                    slider_img = camera.get_specific_frame(slider_position)
+                    slider_index = slider_position - 1
 
                     self.state.toolbar.data_acq.outer_diam.set(np.round(self.state.measure.outer_diam[slider_index], 1))
                     self.state.toolbar.data_acq.inner_diam.set(np.round(self.state.measure.inner_diam[slider_index], 1))
@@ -4032,7 +4037,7 @@ class CameraFrame(ctk.CTkFrame):
             self.slider.configure(state="normal")
 
         current_value = self.slider.get()
-        self.state_vars.cam_show.slider_position_manual = current_value
+        self.state_vars.cam_show.slider_position_manual.set(current_value)
 
         '''
         When loading from a file only show the vertical indicator on the graph when we are not tracking and not acquiring i.e., only after the analysis has ran.
@@ -5023,7 +5028,7 @@ class Controller:
         self.model.prev_update = 0.0
         self.model.time_elapsed = 0.0
         self.model.frame_count = 0
-        self.model.state.cam_show.slider_position_manual = 0
+        self.model.state.cam_show.slider_position_manual.set(0)
         self.model.state.camera.reinitialize()
         self.model.state.frames_elapsed = 0
 

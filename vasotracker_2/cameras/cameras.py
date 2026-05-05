@@ -387,14 +387,19 @@ class SavedDataCamera(CameraBase, camera_name="Image from file"):
                 return self.last_frame
             else:
                 return np.zeros((1, 1)) 
-            
-        if not isinstance(frame, int):
+
+        if hasattr(frame, "get"):
+            frame = frame.get()
+
+        try:
+            frame = int(frame)
+        except (TypeError, ValueError):
             return np.zeros((1, 1))  # Return a default blank image
 
 
         try:
             with tf.TiffFile(self.path_to_tiff) as tif:
-                if self.frame_count < len(tif.pages):
+                if 0 <= frame < len(tif.pages):
                     image = tif.pages[frame].asarray()
                 else:
                     image = self.last_frame  # Return the last frame
@@ -457,7 +462,7 @@ class SavedDataCamera(CameraBase, camera_name="Image from file"):
 
     def get_camera_dims(self):
         im = self.get_image()
-        height, width, = im.shape
+        height, width = im.shape[:2]
         length = self.config.proxy_camera.max_frame
         print("Image shape: ", height, width, length)
         return width, height, length
