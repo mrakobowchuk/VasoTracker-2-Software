@@ -159,7 +159,7 @@ def detect_peaks(
     if ind.size and indnan.size:
         # NaN's and values close to NaN's cannot be peaks
         ind = ind[
-            np.in1d(
+            np.isin(
                 ind, np.unique(np.hstack((indnan, indnan - 1, indnan + 1))), invert=True
             )
         ]
@@ -335,17 +335,17 @@ def process_ddts2(
         try:
             if detection_mode == 0:
                 test = [item for item in peaks_indices if item > OD1 and item < (OD1 + (OD2 - OD1) / 2)]
-                ID1_ = test[0] + start_x[j] if test else np.NaN
+                ID1_ = test[0] + start_x[j] if test else np.nan
 
                 test2 = [item for item in valley_indices if item < OD2 and item > (OD1 + (OD2 - OD1) / 2)]
-                ID2_ = test2[-1] + start_x[j] if test2 else np.NaN
+                ID2_ = test2[-1] + start_x[j] if test2 else np.nan
 
             else:
                 test = [item for item in valley_indices if item > OD1 and item < (OD1 + (OD2 - OD1) / 2)]
-                ID1_ = test[0] + start_x[j] if test else np.NaN
+                ID1_ = test[0] + start_x[j] if test else np.nan
 
                 test2 = [item for item in peaks_indices if item < OD2 and item > (OD1 + (OD2 - OD1) / 2)]
-                ID2_ = test2[-1] + start_x[j] if test2 else np.NaN
+                ID2_ = test2[-1] + start_x[j] if test2 else np.nan
 
         except:
             ID1_ = 0
@@ -355,9 +355,9 @@ def process_ddts2(
         ID = scale * (ID2_ - ID1_)
 
         if ID_mode == 0:
-            ID1_ = np.NaN
-            ID2_ = np.NaN
-            ID = np.NaN
+            ID1_ = np.nan
+            ID2_ = np.nan
+            ID = np.nan
 
         outer_diameters1_pos.append(OD1_)
         outer_diameters2_pos.append(OD2_)
@@ -603,9 +603,9 @@ def process_ddts(
         ID = scale * (ID2_ - ID1_)
 
         if ID_mode == 0:
-            ID1_ = np.NaN
-            ID2_ = np.NaN
-            ID = np.NaN
+            ID1_ = np.nan
+            ID2_ = np.nan
+            ID = np.nan
 
         outer_diameters1_pos.append(
             OD1_,
