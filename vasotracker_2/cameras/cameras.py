@@ -368,7 +368,7 @@ class SavedDataCamera(CameraBase, camera_name="Image from file"):
                 if self.frame_count < len(tif.pages):
                     image = tif.pages[self.frame_count].asarray()
                 else:
-                    image = self.last_frame  # Return the last frame
+                    image = self.last_frame if self.last_frame is not None else np.zeros((1, 1))
                     self.camera_stopped = True
         except (FileNotFoundError, tf.TiffFileError):
             image = np.zeros((1, 1))
@@ -377,6 +377,9 @@ class SavedDataCamera(CameraBase, camera_name="Image from file"):
         if image.dtype == np.uint16:
             # Convert 16-bit to 8-bit by scaling down
             image = ((image / 65535) * 255).astype(np.uint8)
+
+        self.last_frame = image
+        self.last_frame_idx = self.frame_count
 
         #self.frame_count = (self.frame_count + 1) % self.max_frame_count
         return image.astype(np.uint8) 
@@ -402,7 +405,7 @@ class SavedDataCamera(CameraBase, camera_name="Image from file"):
                 if 0 <= frame < len(tif.pages):
                     image = tif.pages[frame].asarray()
                 else:
-                    image = self.last_frame  # Return the last frame
+                    image = self.last_frame if self.last_frame is not None else np.zeros((1, 1))
                     self.camera_stopped = True
         except (FileNotFoundError, tf.TiffFileError):
             image = np.zeros((1, 1))
@@ -411,6 +414,9 @@ class SavedDataCamera(CameraBase, camera_name="Image from file"):
         if image.dtype == np.uint16:
             # Convert 16-bit to 8-bit by scaling down
             image = ((image / 65535) * 255).astype(np.uint8)
+
+        self.last_frame = image
+        self.last_frame_idx = frame
 
         #self.frame_count = (self.frame_count + 1) % self.max_frame_count
         return image.astype(np.uint8)    
