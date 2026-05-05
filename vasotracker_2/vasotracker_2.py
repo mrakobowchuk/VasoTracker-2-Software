@@ -1645,8 +1645,11 @@ class Model:
             Therefore, the logic below cannot rely on acquire == True as this will always be the case when showing an image.
             '''
             sleep_duration = self.sleep_duration
+            if camera is None:
+                time.sleep(sleep_duration)
+                continue
             if self.queue.empty() and self.acquiring and not file_analysed:
-                if self.state.camera.camera_name == "Image from file" and not self.tracking:
+                if camera.camera_name == "Image from file" and not self.tracking:
                     '''
                     Load an image and have it show. The image will not be analysed until the analyse button is pressed and self.tracking is True.
                     '''
@@ -1657,14 +1660,14 @@ class Model:
                     # NOTE(cmo): Don't spin super fast on the same frame in this state!
                     sleep_duration *= 10
 
-                elif self.state.camera.camera_name == "Image from file" and self.tracking and self.tracking_file:
+                elif camera.camera_name == "Image from file" and self.tracking and self.tracking_file:
                     '''
                     Analyse the loaded file when the analyse button is pressed.
                     '''
                     camera.next_position(self.state.app.tracking.get())
                     self.state.cam_show.slider_dirty.set(True) # Set the slider to the current potition
-                    last_frame = self.state.camera.max_frame_count
-                    current_frame = self.state.camera.frame_count
+                    last_frame = camera.max_frame_count
+                    current_frame = camera.frame_count
 
                     # Clear table and graph
                     if current_frame == 1:
@@ -1676,7 +1679,7 @@ class Model:
                         self.state.app.acquiring.set(1)
                         self.state.app.tracking.set(0)
                         self.state.app.file_analysed.set(1)
-                        self.state.camera.reinitialize()
+                        camera.reinitialize()
                         self.frames_elapsed = 0
 
                         # Update the slider to the current position
@@ -1694,12 +1697,11 @@ class Model:
                     self.queue.empty()
 
                 else:
-                    camera = self.state.camera
-                    if camera and camera.image_ready():
+                    if camera.image_ready():
                         # Need to make sure circular buffer has not reset for uManager cameras (crashes if the buffer is 0)
                         buffer = camera.is_buffer_empty()
                         # Logic: If not Offline Analyzer and if live camera buffer is empty, then do not try to get an image. Otherwise, get an image.
-                        if not self.state.camera.camera_name == "Image from file":
+                        if not camera.camera_name == "Image from file":
                             if buffer < 1:
                                 time.sleep(sleep_duration)
                                 continue
@@ -1720,8 +1722,7 @@ class Model:
                 '''
                 This runs after we have analysed a file and allows us to scroll through the images and plotted graph.
                 '''
-                camera = self.state.camera
-                if self.state.camera.camera_name == "Image from file":
+                if camera is not None and camera.camera_name == "Image from file":
                     slider_img = camera.get_specific_frame(self.state.cam_show.slider_position_manual)
                     slider_index = int(self.state.cam_show.slider_position_manual) - 1
 
